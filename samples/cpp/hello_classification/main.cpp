@@ -27,8 +27,8 @@ int tmain(int argc, tchar* argv[]) {
         slog::info << ov::get_openvino_version() << slog::endl;
 
         // -------- Parsing and validation of input arguments --------
-        if (argc != 4) {
-            slog::info << "Usage : " << argv[0] << " <path_to_model> <path_to_image> <device_name>" << slog::endl;
+        if (argc != 5) {
+            slog::info << "Usage : " << argv[0] << " <path_to_model> <path_to_image> <device_name> <model_layout>" << slog::endl;
             return EXIT_FAILURE;
         }
 
@@ -36,6 +36,7 @@ int tmain(int argc, tchar* argv[]) {
         const std::string model_path = TSTRING2STRING(argv[1]);
         const std::string image_path = TSTRING2STRING(argv[2]);
         const std::string device_name = TSTRING2STRING(argv[3]);
+        const std::string layout      = TSTRING2STRING(argv[4]);
 
         // -------- Step 1. Initialize OpenVINO Runtime Core --------
         ov::Core core;
@@ -82,7 +83,7 @@ int tmain(int argc, tchar* argv[]) {
         // - apply linear resize from tensor spatial dims to model spatial dims
         ppp.input().preprocess().resize(ov::preprocess::ResizeAlgorithm::RESIZE_LINEAR);
         // 4) Here we suppose model has 'NCHW' layout for input
-        ppp.input().model().set_layout("NCHW");
+        ppp.input().model().set_layout(ov::Layout{layout});
         // 5) Set output tensor information:
         // - precision of tensor is supposed to be 'f32'
         ppp.output().tensor().set_element_type(ov::element::f32);
