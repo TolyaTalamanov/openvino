@@ -283,6 +283,11 @@ public:
         if (p == nullptr) {
             OPENVINO_THROW("Cannot create vector! Buffer is not allocated.");
         }
+        if (get_element_type() == ov::element::u4 && ov::shape_size(get_shape()) == 1u) {
+            //std::cout << "######################### before p = " << static_cast<int>(*reinterpret_cast<const uint8_t*>(p)) << std::endl;
+           *reinterpret_cast<uint8_t*>(const_cast<T*>(p)) &= 0x0f; 
+            //std::cout << "######################### after p = " << static_cast<int>(*reinterpret_cast<const uint8_t*>(p)) << std::endl;
+        }
         return std::vector<T>(p, p + shape_size(m_shape));
     }
 

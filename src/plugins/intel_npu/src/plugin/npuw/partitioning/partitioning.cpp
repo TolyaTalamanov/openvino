@@ -1245,6 +1245,18 @@ void Partitioner::saveRepeatedConstants(const std::string& func_name) {
         LOG_DEBUG("Checking a bank with prototype node " << proto_node << "...");
         LOG_BLOCK();
 
+        if (proto_node->output(0).get_element_type() == ov::element::u4 &&
+            ov::shape_size(proto_node->output(0).get_shape()) == 1u) {
+            auto vec = proto_node->get_vector<uint8_t>();
+            std::cout << "=========================" << std::endl;
+            std::cout << "val: " << static_cast<int>(vec[0]) << std::endl;
+            for (auto other : instances) {
+                auto other_vec = other->get_vector<uint8_t>();
+                std::cout << "other val: " << static_cast<int>(vec[0]) << std::endl;
+            }
+            std::cout << "=========================" << std::endl;
+        }
+
         if ((((proto_shape.size() == 0 || (proto_shape.size() == 1 && proto_shape[0] <= 10)) &&
               proto_node->output(0).get_element_type().is_integral()) ||
              ((proto_node->output(0).get_element_type() == ov::element::f32 ||
@@ -1797,6 +1809,7 @@ ov::npuw::Partitioning ov::npuw::getPartitioning(const std::shared_ptr<ov::Model
         }  // for(ens.groups)
     }      // if(fcew.enabled)
 
+    std::cout << "Partitioning" << std::endl;
     Partitioning P;
     P.total_gflops = ens.gflops;
 
