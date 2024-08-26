@@ -1245,6 +1245,12 @@ void Partitioner::saveRepeatedConstants(const std::string& func_name) {
         LOG_DEBUG("Checking a bank with prototype node " << proto_node << "...");
         LOG_BLOCK();
 
+        if (proto_node->output(0).get_element_type() == ov::element::u4 &&
+            ov::shape_size(proto_node->output(0).get_shape()) == 1u) {
+            auto zp = proto_node->get_vector<uint8_t>()[0];
+            std::cout << "zp: " << static_cast<int>(zp) << std::endl;
+        }
+
         if ((((proto_shape.size() == 0 || (proto_shape.size() == 1 && proto_shape[0] <= 10)) &&
               proto_node->output(0).get_element_type().is_integral()) ||
              ((proto_node->output(0).get_element_type() == ov::element::f32 ||
