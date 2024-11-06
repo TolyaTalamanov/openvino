@@ -73,7 +73,7 @@ jobs:
     defaults:
       run:
         shell: bash
-    runs-on: aks-linux-16-cores-32gb
+    runs-on: aks-linux-16-cores-64gb
     container:
       image: ${{ fromJSON(needs.docker.outputs.images).ov_build.ubuntu_22_04_android }}
       volumes:
@@ -135,6 +135,7 @@ jobs:
             -DCMAKE_C_COMPILER_LAUNCHER=${{ env.CMAKE_C_COMPILER_LAUNCHER }} \
             -DENABLE_LTO=ON \
             -DENABLE_PYTHON=OFF \
+            -DENABLE_TESTS=ON \
             -DOPENVINO_EXTRA_MODULES=${{ env.OPENVINO_GENAI_REPO }} \
             -S ${OPENVINO_REPO} \
             -B ${BUILD_DIR}

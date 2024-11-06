@@ -61,6 +61,7 @@ void ExecutionConfig::set_default() {
         std::make_tuple(ov::hint::kv_cache_precision, ov::element::undefined),
         std::make_tuple(ov::intel_gpu::hint::enable_kernels_reuse, false),
         std::make_tuple(ov::weights_path, ""),
+        std::make_tuple(ov::hint::activations_scale_factor, 0.f),
 
         // Legacy API properties
         std::make_tuple(ov::intel_gpu::nv12_two_inputs, false),
@@ -209,16 +210,6 @@ void ExecutionConfig::apply_debug_options(const cldnn::device_info& info) {
             set_property(ov::hint::dynamic_quantization_group_size(UINT64_MAX));
         else
             set_property(ov::hint::dynamic_quantization_group_size(debug_config->dynamic_quantize_group_size));
-    }
-
-    int KVCacheCompression = 0;
-    if (const auto env_var = std::getenv("KVCacheCompression")) {
-        std::istringstream ss(env_var);
-        ss >> KVCacheCompression;
-    }
-
-    if (KVCacheCompression == 1) {
-        set_property(ov::hint::kv_cache_precision(ov::element::i8));
     }
 
     GPU_DEBUG_IF(debug_config->use_kv_cache_compression != -1) {
