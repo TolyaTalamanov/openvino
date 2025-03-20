@@ -117,7 +117,8 @@ std::optional<ov::Output<const ov::Node>> find_port_by_name(const std::vector<ov
     return std::make_optional(*it);
 }
 
-constexpr uint32_t INPUT_IDS_SEQ_LEN_DIM = 1;
+constexpr uint32_t INPUT_IDS_SEQ_LEN_DIM = 1u;
+constexpr size_t OUTPUT_KVCACHE_START_IDX = 1u;
 
 }  // anonymous namespace
 
@@ -154,6 +155,23 @@ ov::npuw::LLMInferRequest::LLMInferRequest(const std::shared_ptr<ov::npuw::LLMCo
     }
     for (const auto& output_port : m_kvcache_request->get_compiled_model()->outputs()) {
         m_kvcache_out_ports.emplace(output_port.get_any_name(), output_port);
+    }
+
+    auto& kvcache_desc = m_npuw_llm_compiled_model->m_kvcache_desc;
+    for (std::size_t i = 0; i < compiled_model->m_kvcache_compiled->outputs().size() - 1; ++i) {
+        const auto& output_name =
+            compiled_model->m_kvcache_compiled->outputs()[OUTPUT_KVCACHE_START_IDX + i].get_any_name();
+        const auto& input_name = std::regex_replace(output_name, std::regex("present"), "past_key_values");
+        const auto& kv_dim = (output_name.find("value") != std::string::npos && kvcache_desc.v_tensors_transposed)
+                                 ? 3u
+                                 : kvcache_desc.dim;
+        // NB: Memory continuous - can redirect
+        //if (kv_dim == 2u) {
+            //std::cout << "REDIRECT " << output_name << " -> " << input_name << std::endl;
+            //auto kvcache_in_tensor = m_kvcache_request->get_tensor(m_kvcache_in_ports.at(input_name));
+            //fill_tensor<ov::float16>(kvcache_in_tensor, 0);
+            //m_prefill_request->set_tensor(m_prefill_out_ports.at(output_name), kvcache_in_tensor);
+        //}
     }
 }
 
@@ -194,24 +212,17 @@ void ov::npuw::LLMInferRequest::infer_prefill(ov::SoPtr<ov::ITensor> input_ids,
 
     prepare_for_new_conversation();
 
-    auto padded_input = m_prefill_request->get_tensor(m_prefill_in_ports.at(m_input_ids_name));
     // NB: padded_input can be either fp32(VLM) or i64(LLM)
-    std::copy_n(
-        reinterpret_cast<uint8_t*>(input_ids->data()),
-        input_ids->get_byte_size(),
-        reinterpret_cast<uint8_t*>(padded_input->data()) + padded_input->get_byte_size() - input_ids->get_byte_size());
+    auto padded_input = m_prefill_request->get_tensor(m_prefill_in_ports.at(m_input_ids_name));
+    std::copy_n(reinterpret_cast<uint8_t*>(input_ids->data()),
+                input_ids->get_byte_size(),
+                reinterpret_cast<uint8_t*>(padded_input->data()));
 
     auto padded_attention_mask = m_prefill_request->get_tensor(m_prefill_in_ports.at("attention_mask"));
-    std::copy_n(
-        attention_mask->data<int64_t>(),
-        attention_mask->get_size(),
-        padded_attention_mask->data<int64_t>() + padded_attention_mask->get_size() - attention_mask->get_size());
+    std::copy_n(attention_mask->data<int64_t>(), attention_mask->get_size(), padded_attention_mask->data<int64_t>());
 
     auto padded_position_ids = m_prefill_request->get_tensor(m_prefill_in_ports.at("position_ids"));
-
-    std::copy_n(position_ids->data<int64_t>(),
-                position_ids->get_size(),
-                padded_position_ids->data<int64_t>() + padded_position_ids->get_size() - position_ids->get_size());
+    std::copy_n(position_ids->data<int64_t>(), position_ids->get_size(), padded_position_ids->data<int64_t>());
 
     m_prefill_request->infer();
 
@@ -242,30 +253,29 @@ void ov::npuw::LLMInferRequest::infer_generate(ov::SoPtr<ov::ITensor> input_ids,
         const auto& kvcache_compiled = m_kvcache_request->get_compiled_model();
         for (std::size_t i = 0; i < kvcache_compiled->outputs().size() - 1; ++i) {
             const auto& output_name = kvcache_compiled->outputs()[kStartOutputKVCacheLayers + i].get_any_name();
-            auto prefill_out_tensor = m_prefill_request->get_tensor(m_prefill_out_ports.at(output_name));
-
-            const auto& input_name = std::regex_replace(output_name, std::regex("present"), "past_key_values");
-            auto kvcache_in_tensor = m_kvcache_request->get_tensor(m_kvcache_in_ports.at(input_name));
-
-            // FIXME: We don't need to fill whole tensor with 0s, but only tensor.size() - num_stored_tokens
-            //        taking into account kvcache dimension.
-            fill_tensor<ov::float16>(kvcache_in_tensor, 0);
-
             const auto& kv_dim = (output_name.find("value") != std::string::npos && kvcache_desc.v_tensors_transposed)
                                      ? 3u
                                      : kvcache_desc.dim;
 
-            auto prefill_out_slice = make_tensor_slice(prefill_out_tensor,
-                                                       kv_dim,
-                                                       kvcache_desc.max_prompt_size - kvcache_desc.num_stored_tokens,
-                                                       kvcache_desc.max_prompt_size);
+            // NB: Copy already done by prefill model itself
+            //if (kv_dim == 2u) {
+                //continue;
+            //}
 
+            auto prefill_out_tensor = m_prefill_request->get_tensor(m_prefill_out_ports.at(output_name));
+            const auto& input_name = std::regex_replace(output_name, std::regex("present"), "past_key_values");
+            auto kvcache_in_tensor = m_kvcache_request->get_tensor(m_kvcache_in_ports.at(input_name));
+            fill_tensor<ov::float16>(kvcache_in_tensor, 0);
+
+            auto prefill_out_slice = make_tensor_slice(prefill_out_tensor, kv_dim, 0u, kvcache_desc.num_stored_tokens);
             auto kvcache_in_slice = make_tensor_slice(kvcache_in_tensor, kv_dim, 0u, kvcache_desc.num_stored_tokens);
+
+            if (kv_dim == 2u) {
+                copy_by_planes(prefill_out_slice, kvcache_in_slice);
+            }
 
             if (kv_dim == 3u) {
                 copy_columns_by_row_chunks(prefill_out_slice, kvcache_in_slice);
-            } else if (kv_dim == 2u) {
-                copy_by_planes(prefill_out_slice, kvcache_in_slice);
             } else {
                 prefill_out_slice->copy_to(kvcache_in_slice._ptr);
             }
